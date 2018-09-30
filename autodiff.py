@@ -3,7 +3,7 @@ import tensorflow as tf
 import initializers as init
 
 class Node(object):
-    """Node in a computation graph."""
+    """Node in a computation graph. testtttttttt............. """
     def __init__(self):
         """Constructor, new node is indirectly created by Op object __call__ method.
 

@@ -19,7 +19,6 @@ def find_topo_sort(node_list):
 
 def topo_sort_dfs(node, visited, topo_order):
     """Post-order DFS"""
-    #print("node in dfs ", node)
     if node in visited:
         return
     visited.add(node)
@@ -35,39 +34,14 @@ class GradientDescentOptimizer():
 
     def minimize(self, cost):
         trainable_vars = self.find_trainable_vars(cost)
-        # trainable_vars = [node for node in topo_order if node.trainable]
-        # trainable_vars = list(reversed(trainable_vars))
-
         print("trainable_vars ", trainable_vars)
 
         grad_list = gradients(cost, trainable_vars)
-
-        # print("-------------------------------")
-        # print("-------------------------------")
-        #
-        # for grad in grad_list:
-        #     print("\nfor grad ----- ", grad)
-        #     topo_order = find_topo_sort([grad])
-        #     for node in topo_order:
-        #         print("node ", node)
-        #
-        # print("-------------------------------")
-        # print("-------------------------------")
-
-        # topo_order = find_topo_sort([W_grad])
-        # for node in topo_order:
-        #     print("node ", node)
 
         assert len(trainable_vars) == len(grad_list)
         train_steps = []
         for var, var_grad in zip(trainable_vars, grad_list):
             train_steps.append(assign(var, var - self.learning_rate * var_grad))
-
-        # print("train steps...")
-        # topo_order = find_topo_sort(train_steps)
-        # for elt in topo_order:
-        #     print("node : ", elt)
-
 
         return train_steps
 

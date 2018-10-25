@@ -1,9 +1,8 @@
 import numpy as np
-import tensorflow as tf
 import initializers as init
 
 class Node(object):
-    """Node in a computation graph. testtttttttt............. """
+    """Node in a computation graph. """
     def __init__(self):
         """Constructor, new node is indirectly created by Op object __call__ method.
 
@@ -36,12 +35,10 @@ class Node(object):
     def __mul__(self, other):
         """Multiplying two nodes return a new node."""
         if isinstance(other, Node):
-            #print("in mul_op ", self, other)
             new_node = mul_op(self, other)
         else:
             # Multiply by a constant stores the constant in the new node's const_attr field.
             # 'other' argument is a constant
-            #print("in mul_byconst_op ", type(self), type(other))
             new_node = mul_byconst_op(self, other)
         return new_node
 
@@ -137,7 +134,6 @@ class AddOp(Op):
     def compute(self, node, input_vals, nval_map = None):
         """Given values of two input nodes, return result of element-wise addition."""
         assert len(input_vals) == 2
-        #print(node.name, input_vals[0].shape, input_vals[1].shape )
         return input_vals[0] + input_vals[1]
 
     def gradient(self, node, output_grad):
@@ -155,8 +151,6 @@ class SubOp(Op):
     def compute(self, node, input_vals, nval_map = None):
         """Given values of two input nodes, return result of element-wise subtraction """
         assert len(input_vals) == 2
-        #print("in subop ", input_vals[0])
-        #print("in subop ", input_vals[1])
         return input_vals[0] - input_vals[1]
 
     def gradient(self, node, output_grad):
@@ -353,7 +347,6 @@ class ExpXOp(Op):
 
     def gradient(self, node, output_grad):
         """Given gradient of exponent node, return gradient contribution to input."""
-        #print("in gradient ", type(output_grad), type(node))
         return [output_grad * node]
 
 
@@ -430,11 +423,6 @@ class AssignOp(Op):
         return new_node
 
     def compute(self, node, input_vals, nval_map = None):
-        # if node.inputs[0].name == 'b1':
-        #     print(node.name, nval_map[node.inputs[0]].shape, nval_map[node.inputs[1]].shape)  #, node.inputs[0].shape, node.inputs[1].shape)
-        #     print('-'*100)
-
-
         """ to retain the proper dimension of lhs. in case of bias assignment if its not done then it was making the
         dimension of bias as (n, m) instead of (n, 1) """
         # target shape
@@ -639,16 +627,13 @@ class Executor:
         ----------
         eval_node_list: list of nodes whose values need to be computed.
         """
+
         self.eval_node_list = eval_node_list
         self.node_to_val_map = {}
         topo_order = find_topo_sort(self.eval_node_list)
         for node in topo_order:
             if node.trainable:
-                #print(node)
                 self.node_to_val_map[node] = node.initial_value
-        #print(self.node_to_val_map)
-
-
 
 
     def run(self, feed_dict):
@@ -664,25 +649,25 @@ class Executor:
         self.node_to_val_map.update( dict(feed_dict) )
         # Traverse graph in topological sort order and compute values for all nodes.
         topo_order = find_topo_sort(self.eval_node_list)
-        #print(topo_order)
+
         for node in topo_order:
-            #print("run : node ", node)
             if not isinstance(node.op, PlaceholderOp):
                 if isinstance(node.op, OnesLikeOp):
                     nd_var = node.inputs[0]
                     val = self.node_to_val_map[nd_var]
-                    #print("val ", val)
-                    # if not isinstance(val, np.ndarray):
-                    #     val = np.array([val])
                     self.node_to_val_map[node] = node.op.compute(node, [val])
-                    #print("Computed value of node ", node, node_to_val_map[node])
                 else:
                     self.node_to_val_map[node] = node.op.compute(node, [self.node_to_val_map[inp] for inp in node.inputs], nval_map = self.node_to_val_map)
-                    #print("Computed value of node ", node, self.node_to_val_map[node])
-                #print(node_to_val_map)
 
         # Collect node values.
-        node_val_results = [self.node_to_val_map[node] for node in self.eval_node_list]
+        node_val_results = []
+        assign_op_values = [self.node_to_val_map[node] for node in self.eval_node_list
+                                                           if isinstance(node.op, AssignOp)]
+        node_val_results.append(assign_op_values)
+        other_op_values = [self.node_to_val_map[node] for node in self.eval_node_list
+                                                          if not isinstance(node.op, AssignOp)]
+        node_val_results.extend(other_op_values)
+
         return node_val_results
 
     def compute_value(self, node_list, feed_dict):
@@ -709,53 +694,29 @@ def gradients(output_node, node_list):
     # We are really taking a derivative of the scalar reduce_sum(output_node)
     # instead of the vector output_node. But this is the common case for loss function.
 
-    #temp = oneslike_op(output_node)
-    #oneslike_op.compute(temp, temp.inputs)
-
 
     node_to_output_grads_list[output_node] = [oneslike_op(output_node)]
-    #node_to_output_grads_list[output_node] = [1]
+
     # a map from node to the gradient of that node
     node_to_output_grad = {}
     # Traverse graph in reverse topological order given the output_node that we are taking gradient wrt.
     reverse_topo_order = reversed(find_topo_sort([output_node]))
 
-    #node_to_output_grad[output_node] = sum_node_list(node_to_output_grads_list[output_node])
     reverse_topo_order = list(reverse_topo_order)
     for node in reverse_topo_order[1:]:
         node_to_output_grads_list[node] = []
 
-
-    # for node in reverse_topo_order:
-    #     print("node : " + str(node))
-
     for node in reverse_topo_order:
-        #print("node ", node)
         node_to_output_grad[node] = sum_node_list(node_to_output_grads_list[node])
         grad_inputs = node.op.gradient(node, node_to_output_grad[node])
-
-        #print("grad_inputs ", grad_inputs, type(grad_inputs[0]))
 
         if grad_inputs is not None:
             assert len(grad_inputs) == len(node.inputs)
             for inp, grad in zip(node.inputs, grad_inputs):
                 if isinstance(grad.op, OnesLikeOp):
                     node_to_output_grads_list[inp] += [oneslike_op(inp)]
-                    # if isinstance(inp.op, PlaceholderOp):
-                    #     node_to_output_grads_list[inp] += [oneslike_op(inp)]
-                    # else:
-                    #     node_to_output_grads_list[inp] += [oneslike_op(inp)]
                 else:
                     node_to_output_grads_list[inp] += [grad]
-
-
-    #print(node_to_output_grads_list)
-
-    # for node_key in node_to_output_grads_list:
-    #     node_to_output_grad[node_key] = sum_node_list(node_to_output_grads_list[node_key])
-
-    #print(node_to_output_grad)
-
 
     # Collect results for gradients requested.
     grad_node_list = [node_to_output_grad[node] for node in node_list]
@@ -794,420 +755,3 @@ def sum_node_list(node_list):
     from operator import add
     from functools import reduce
     return reduce(add, node_list)
-
-
-
-
-
-
-
-
-def test_gradients():
-    w_val_init = np.random.randn(5, 5)
-    W1 = ad.Variable(w_val_init, name = "W1")
-
-    cost = ad.relu(W1)
-    grad_list = ad.gradients(cost, [W1])
-    executor = ad.Executor(grad_list)
-    val = executor.run(feed_dict = {})
-    print(val)
-
-
-    #grad_list = ad.gradients(cost, var_list)
-
-    W1 = tf.Variable(w_val_init, dtype=tf.float32, name='W1')
-    A1 = tf.nn.relu(W1)
-    grad = tf.gradients(A1, W1)
-    init_op = tf.global_variables_initializer()
-    with tf.Session() as sess:
-        sess.run(init_op)
-        g_val = sess.run(grad, feed_dict = {})
-        print(g_val)
-
-
-
-
-
-
-
-def test_simple():
-    train_X, train_Y = loadImages()
-
-    learn_rate = 0.5
-    w_val_init1 = np.random.randn(50, train_X.shape[0])
-    w_val_init2 = np.random.randn(10, 50)
-    w_val_init3 = np.random.randn(3, 10)
-
-    # train_X = train_X[0:10, 0:10]
-    # train_Y = train_Y[:, 0:10]
-    # w_val_init = np.random.randn(3, train_X.shape[0])
-    # w_val_init1 = np.random.randn(3, 10)
-
-    W1, W2, W3 = ad.Variable(w_val_init1, name = "W1"), ad.Variable(w_val_init2, name = "W2"), ad.Variable(w_val_init3, name = "W3"),
-    x, labels = ad.placeholder(name = "x"), ad.placeholder(name = "labels")
-
-    Z1 = ad.matmul(W1, x)
-    A1 = ad.sigmoid(Z1)
-    Z2 = ad.matmul(W2, A1)
-    A2 = ad.sigmoid(Z2)
-    Z3 = ad.matmul(W3, A2)
-
-
-    cost = ad.reduce_mean( ad.softmax_with_cross_entropy(Z3, labels) )
-    optimizer = ad.GradientDescentOptimizer(learn_rate).minimize(cost)
-    optimizer.extend([cost])
-    print("optimizer length ", len(optimizer))
-
-    executor = ad.Executor(optimizer)
-    for i in range(50):
-        _, _, _, cost_val = executor.run(feed_dict = {x : train_X, labels : train_Y})
-        print(cost_val)
-        #print(my_w_val)
-
-    print("-" * 100)
-
-
-    W1 = tf.Variable(w_val_init1, dtype=tf.float32, name='W1')
-    W2 = tf.Variable(w_val_init2, dtype=tf.float32, name='W2')
-    W3 = tf.Variable(w_val_init3, dtype=tf.float32, name='W3')
-    x = tf.placeholder(tf.float32, shape=train_X.shape, name='x')
-    labels = tf.placeholder(tf.float32, shape=train_Y.shape, name='labels')
-
-    Z1 = tf.matmul(W1, x)
-    A1 = tf.sigmoid(Z1)
-    Z2 = tf.matmul(W2, A1)
-    A2 = tf.sigmoid(Z2)
-    Z3 = tf.matmul(W3, A2)
-
-
-    cost = tf.reduce_mean( tf.nn.softmax_cross_entropy_with_logits(logits=Z3, labels=train_Y, dim=0) )
-    #cost = tf.reduce_mean( tf.nn.sigmoid_cross_entropy_with_logits(logits=Z2, labels=train_Y) )
-    #cost = tf.nn.softmax(logits=matmul_value1, dim=0)
-
-    #y_clipped = tf.clip_by_value(cost, 1e-10, 0.9999999)
-    #cross_entropy = -tf.reduce_mean(tf.reduce_sum(train_Y * tf.log(y_clipped) + (1 - train_Y) * tf.log(1 - y_clipped), axis=0))
-
-
-    #tf_grad_matmul_val = tf.gradients(y, m)[0]
-
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate = learn_rate).minimize(cost)
-
-    init_op = tf.global_variables_initializer()
-    print("Tf value sigmoid cost :")
-    with tf.Session() as sess:
-        sess.run(init_op)
-        for i in range(50):
-            _, cost_val = sess.run([optimizer, cost], feed_dict = {x : train_X, labels : train_Y})
-            print(cost_val)
-            #print(tf_w_val)
-
-
-if __name__ == '__main__':
-     import autodiff as ad
-
-     from PIL import Image
-     import numpy as np
-     import matplotlib.pyplot as plt
-     from scipy import ndimage
-     from pathlib import Path, PurePath, WindowsPath
-     from operator import itemgetter
-     import tensorflow as tf
-     from tensorflow.python.framework import ops
-    #from tf_utils import load_dataset, random_mini_batches, convert_to_one_hot, predict
-     from tf_utils import load_dataset, convert_to_one_hot, predict
-
-     from image_dataset_load import *
-
-     #test_simple()
-
-     #test_gradients()
-
-     test_run()
-
-
-
-
-def test_simple1():
-    train_X, train_Y = loadImages()
-
-    learn_rate = 0.5
-    w_val_init, w_val_init1 = np.random.randn(10, train_X.shape[0]), np.random.randn(3, 10)
-
-    W,  W1 = ad.Variable(w_val_init, name = "W"), ad.Variable(w_val_init1, name = "W1")
-    x, labels = ad.placeholder(name = "x"), ad.placeholder(name = "labels")
-
-    matmul = ad.matmul(W, x)
-    matmul1 = ad.matmul(W1, matmul)
-    cost = ad.reduce_mean( ad.softmax_with_cross_entropy(matmul1, labels) )
-
-    matmul = ad.matmul(W, x)
-    # matmul1 = ad.matmul(W1, matmul)
-    # cost = ad.reduce_mean( ad.softmax_with_cross_entropy(matmul1, labels) )
-    #
-    # optimizer = ad.GradientDescentOptimizer(learn_rate).minimize(cost)
-
-    executor = ad.Executor([optimizer[0], optimizer[1], cost, W, W1])
-    # for i in range(5):
-    #     train_val, _, y_val, my_w_val, my_w_val1 = executor.run(feed_dict = {x : x_val, labels : label_val})
-    #     print(y_val)
-
-
-
-    executor = ad.Executor([cost])
-    y_val = executor.run(feed_dict = {x : train_X, labels : train_Y})
-    #     print(y_val)
-
-
-
-    # matmul = np.dot(w_val_init, train_X)
-    # matmul1 = np.dot(w_val_init1, matmul)
-    # a = matmul1
-    # print("a shape ", a.shape)
-    # #
-    # # print(a[:, 0].shape)
-    # # print(a[:, 0])
-    # # a = a[:, 0]
-    # #
-    # # print("a - np.max(a) ", a - np.max(a))
-    # #print(a)
-    # e_x = np.exp(a - np.max(a, axis=0), dtype=np.float32)
-    # #print(e_x)
-    #
-    # # print("a - np.max(a) ", e_x)
-    # #
-    # # print(e_x[:, 0])
-    # # print(e_x[:, 0].sum(axis=0))
-    #
-    # sftmax = e_x / np.sum(e_x, axis=0, dtype=np.float32)
-    # print("sftmax ", sftmax)
-    # clipped = np.clip(sftmax, 1e-10, 0.9999999)
-    # print("clipped ", clipped)
-    # # print("log.. ", np.log(c))
-    #
-    # sum_x = -np.sum(train_Y * np.log(clipped) + (1 - train_Y) * np.log(1 - clipped), axis=0, keepdims=True)
-    # print(sum_x, sum_x.shape)
-    # cross_ent = np.mean(sum_x)
-
-
-
-    #sftmax = np.exp(a) / np.sum(np.exp(a), axis=0)
-    # sce = -np.sum(train_Y * np.log(c), axis=0)
-    # print("ce  ")
-    #print(sce)
-
-    W = tf.Variable(w_val_init, dtype=tf.float32, name='W')
-    W1 = tf.Variable(w_val_init1, dtype=tf.float32, name='W1')
-    x = tf.placeholder(tf.float32, shape=train_X.shape, name='x')
-    labels = tf.placeholder(tf.float32, shape=train_Y.shape, name='labels')
-
-    matmul_value = tf.matmul(W, x)
-    matmul_value1 = tf.matmul(W1, matmul_value)
-    #print(type(m), type(n), type(_y), type(matmul_value), type(tf.matmul))
-
-    #logits = tf.transpose(matmul_value1)
-    #labels = tf.transpose(train_Y)
-
-    cost = tf.reduce_mean( tf.nn.softmax_cross_entropy_with_logits(logits=tf.transpose(matmul_value1), labels=tf.transpose(train_Y)) )
-    #cost = tf.nn.softmax(logits=matmul_value1, dim=0)
-
-    #y_clipped = tf.clip_by_value(cost, 1e-10, 0.9999999)
-    #cross_entropy = -tf.reduce_mean(tf.reduce_sum(train_Y * tf.log(y_clipped) + (1 - train_Y) * tf.log(1 - y_clipped), axis=0))
-
-
-    #tf_grad_matmul_val = tf.gradients(y, m)[0]
-
-
-    init_op = tf.global_variables_initializer()
-    with tf.Session() as sess:
-        sess.run(init_op)
-        cost_val = sess.run(cost, feed_dict = {x : train_X, labels : train_Y})
-        print(y_val)
-        print("Tf value ")
-        print(cost_val)
-
-
-
-
-
-
-    # w_val_init, w_val_init1 = np.random.randn(5,5), np.random.randn(5,5)
-    # x_val = np.random.randn(5,10)
-    # label_val = convert_to_one_hot(np.array([1,2,0,1,3,2,4,1,0,0]), 5).T
-    #
-    #
-    # W,  W1 = ad.Variable(w_val_init, name = "W"), ad.Variable(w_val_init1, name = "W1")
-    # x, labels = ad.placeholder(name = "x"), ad.placeholder(name = "labels")
-    #
-    #
-    # matmul = ad.matmul(W, x)
-    # matmul1 = ad.matmul(W1, matmul)
-    # cost = ad.reduce_mean( ad.softmax_with_cross_entropy(matmul1, labels) )
-    #
-    # optimizer = ad.GradientDescentOptimizer(learn_rate).minimize(cost)
-    #
-    # # m_val = np.array([[2,4,3], [1,4,8]])
-    # # n_val = np.array([[2,4], [4,8], [3,3]])
-    # # label_val = np.array([[1,0], [0,1]])
-    #
-    #
-    #
-    # #print(softmax_with_cross_entropy1(m_val, x_val, label_val))
-    #
-    # # var_list = [W1, W]
-    # # grad_list = ad.gradients(cost, var_list)
-    #
-    #
-    #
-    #
-    # #
-    # # print("-------------------------------")
-    # # print("-------------------------------")
-    # #
-    # # for grad in grad_list:
-    # #     print("\nfor grad ----- ", grad)
-    # #     topo_order = find_topo_sort([grad])
-    # #     for node in topo_order:
-    # #         print("node ", node)
-    # #
-    # # print("-------------------------------")
-    # # print("-------------------------------")
-    # #
-    # # # topo_order = find_topo_sort([W_grad])
-    # # # for node in topo_order:
-    # # #     print("node ", node)
-    # #
-    #
-    # # assert len(var_list) == len(grad_list)
-    # # train_steps = []
-    # # for var, var_grad in zip(var_list, grad_list):
-    # #     train_steps.append(ad.assign(var, var - learn_rate * var_grad))
-    #
-    #
-    # #
-    # # for grad in train_steps:
-    # #     print("\nfor train steps grad ----- ", grad)
-    # #     topo_order = find_topo_sort([grad])
-    # #     print(len(topo_order))
-    # #     for node in topo_order:
-    # #         print("node ", node)
-    # #
-    # #
-    #
-    #
-    # # print(" -------------------- topo order of train steps  ----------------------------- ")
-    # # topo_order = find_topo_sort([train_steps[0], train_steps[1]])
-    # # print(len(topo_order))
-    # # for node in topo_order:
-    # #     print("node ", node)
-    # #
-    # # print(" -------------------- topo order of train steps  end ----------------------------- ")
-    #
-    #
-    # #
-    # #
-    # #
-    # #
-    # #
-    # #
-    # # # print(W_grad)
-    # # #
-    # # #
-    # # #
-    # # # W_update = W - learn_rate * W_grad
-    # # # print(W_update)
-    # # #
-    # # # train_step = ad.assign(W, W - learn_rate * W_grad)
-    # # #
-    # # #
-    # # #
-    # # #
-    # # #
-    # # # #print(find_topo_sort([ad_grad_matmul]))
-    # # #
-    #
-    # executor = ad.Executor([optimizer[0], optimizer[1], cost, W, W1])
-    # for i in range(5):
-    #     train_val, _, y_val, my_w_val, my_w_val1 = executor.run(feed_dict = {x : x_val, labels : label_val})
-    #     print(y_val)
-    #
-    # print('-' * 100)
-    #
-    # #print(train_val)
-    # # # print(my_w_val)
-    # # # print(my_w_val1)
-    # #
-    # #
-    # #
-    # #
-    #
-    # W = tf.Variable(w_val_init, dtype=tf.float32, name='W')
-    # W1 = tf.Variable(w_val_init1, dtype=tf.float32, name='W1')
-    # x = tf.placeholder(tf.float32, shape=(5,10), name='x')
-    # labels = tf.placeholder(tf.float32, shape=(5,10), name='labels')
-    # matmul_value = tf.matmul(W, x)
-    # matmul_value1 = tf.matmul(W1, matmul_value)
-    # #print(type(m), type(n), type(_y), type(matmul_value), type(tf.matmul))
-    #
-    # cost = tf.reduce_mean( tf.nn.softmax_cross_entropy_with_logits(logits=matmul_value1, labels=labels, dim=0) )
-    # optimizer = tf.train.GradientDescentOptimizer(learn_rate).minimize(cost)
-    # #tf_grad_matmul_val = tf.gradients(y, m)[0]
-    #
-    # y_v = None
-    # init_op = tf.global_variables_initializer()
-    # with tf.Session() as sess:
-    #     sess.run(init_op)
-    #     for i in range(5):
-    #         _, cost_val, tf_w_val, tf_w_val1 = sess.run([optimizer, cost, W, W1], feed_dict = {x : x_val, labels : label_val})
-    #         print(cost_val)
-    #
-    #     print('-' * 100)
-    #     print(tf_w_val)
-    #     print(my_w_val)
-    #
-    #     print('-' * 100)
-    #
-    #     print(tf_w_val1)
-    #     print(my_w_val1)
-       #print(grad_matmul_val, grad_matmul_val.shape)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-     #test_tensorflow()
-
-     #test_simple()
-     # test_add_by_const()
-     # test_mul_by_const()
-     # test_add_two_vars()
-     # test_mul_two_vars()
-     # test_add_mul_mix_1()
-     # test_add_mul_mix_2()
-     # test_add_mul_mix_3()
-     # test_grad_of_grad()
-     #test_expx()
-     #test_matmul_two_vars()
-     #test_inverse()
-     #test_log()
-     #test_sigmoid()
-     #test_reducemean()
-
-     #test_softmax()
-
-    # y_val, grad_x1_val, grad_x2_val = executor.run(feed_dict = {x1 : 5, x2 : 10})
-    # print(y_val, grad_x1_val, grad_x2_val)
